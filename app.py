@@ -646,8 +646,61 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
     for row_i, key in enumerate("ABCDEFGHIJKLMN", start=1):
         t = scores[key]['t']
         ts_cmds.append(('BACKGROUND', (4, row_i), (4, row_i), _t_band_color(t)))
+        ts_cmds.append(('TEXTCOLOR',  (4, row_i), (4, row_i), colors.black))
+        ts_cmds.append(('FONTNAME',   (4, row_i), (4, row_i), 'Helvetica-Bold'))
     score_tbl.setStyle(TableStyle(ts_cmds))
     story.append(score_tbl)
+    story.append(Spacer(1, 6))
+
+    # ── Colour legend ──
+    legend_data = [
+        [Paragraph('<b>Colour</b>', S['small']),
+         Paragraph('<b>T-Score Range</b>', S['small']),
+         Paragraph('<b>Classification</b>', S['small']),
+         Paragraph('<b>Clinical Meaning</b>', S['small'])],
+        [Paragraph('', S['small']),
+         Paragraph('T ≥ 70', S['body']),
+         Paragraph('<b>Markedly Atypical</b>', S['body']),
+         Paragraph('Strong clinical concern. Thorough assessment and intervention strongly recommended.', S['body'])],
+        [Paragraph('', S['small']),
+         Paragraph('65 ≤ T < 70', S['body']),
+         Paragraph('<b>Likely Concern</b>', S['body']),
+         Paragraph('Clinically significant. Warrants follow-up and further clinical evaluation.', S['body'])],
+        [Paragraph('', S['small']),
+         Paragraph('60 ≤ T < 65', S['body']),
+         Paragraph('<b>Worth Monitoring</b>', S['body']),
+         Paragraph('Mildly elevated. Monitor over time; intervention may be beneficial.', S['body'])],
+        [Paragraph('', S['small']),
+         Paragraph('40 ≤ T < 60', S['body']),
+         Paragraph('<b>Average Range</b>', S['body']),
+         Paragraph('Within normal limits. No clinical concern indicated.', S['body'])],
+    ]
+    legend_tbl = Table(legend_data, colWidths=[1.2*cm, 3*cm, 4*cm, W-8.2*cm])
+    legend_cmds = [
+        ('BACKGROUND', (0,0), (-1,0), PDF_HEADER),
+        ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
+        ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE',   (0,0), (-1,-1), 8.5),
+        ('BOX',        (0,0), (-1,-1), 0.5, PDF_BORDER),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, PDF_BORDER),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING',(0,0),(-1,-1), 4),
+        ('LEFTPADDING',(0,0), (-1,-1), 5),
+        # colour swatch cells — col 0 of each data row
+        ('BACKGROUND', (0,1), (0,1), PDF_RED),
+        ('BACKGROUND', (0,2), (0,2), PDF_ORANGE),
+        ('BACKGROUND', (0,3), (0,3), PDF_YELLOW),
+        ('BACKGROUND', (0,4), (0,4), PDF_GREEN),
+        # text on coloured swatches → black bold
+        ('TEXTCOLOR',  (0,1), (0,-1), colors.black),
+        ('FONTNAME',   (0,1), (0,-1), 'Helvetica-Bold'),
+        # alternate row background for readability cols
+        ('ROWBACKGROUNDS', (1,1), (-1,-1), [colors.white, PDF_CREAM, colors.white, PDF_CREAM]),
+    ]
+    legend_tbl.setStyle(TableStyle(legend_cmds))
+    story.append(Paragraph("COLOUR LEGEND — T-SCORE CLASSIFICATION", S['section']))
+    story.append(legend_tbl)
     story.append(Spacer(1, 8))
 
     # ── Bar chart ──
@@ -688,7 +741,8 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
     for row_i, (k,_) in enumerate(adhd_keys, start=1):
         t = scores[k]['t']
         adhd_ts.append(('BACKGROUND', (1, row_i), (1, row_i), _t_band_color(t)))
-        adhd_ts.append(('TEXTCOLOR', (1, row_i), (1, row_i), colors.white))
+        adhd_ts.append(('TEXTCOLOR',  (1, row_i), (1, row_i), colors.black))
+        adhd_ts.append(('FONTNAME',   (1, row_i), (1, row_i), 'Helvetica-Bold'))
     adhd_tbl.setStyle(TableStyle(adhd_ts))
 
     side_tbl = Table([[pie_img, adhd_tbl]], colWidths=[8*cm, W-8*cm])
@@ -773,7 +827,8 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
         bg = colors.white if i % 2 == 0 else PDF_CREAM
         item_ts_cmds.append(('BACKGROUND', (0, item_num), (1, item_num), bg))
         item_ts_cmds.append(('BACKGROUND', (2, item_num), (2, item_num), rating_colors[val]))
-        item_ts_cmds.append(('TEXTCOLOR', (2, item_num), (2, item_num), colors.white))
+        item_ts_cmds.append(('TEXTCOLOR',  (2, item_num), (2, item_num), colors.black))
+        item_ts_cmds.append(('FONTNAME',   (2, item_num), (2, item_num), 'Helvetica-Bold'))
         item_rows.append([
             Paragraph(str(item_num), S['small']),
             Paragraph(item_text, S['small']),
@@ -942,6 +997,47 @@ def build_word_report(report_text, scores, bar_bytes, pie_bytes,
         add_row(info_tbl,"المقياس","CPRS-R:L (80 بنداً، مقياس 0–3)")
     doc.add_paragraph().paragraph_format.space_after=Pt(4)
 
+    # ── Color legend ──
+    legend_title = "COLOUR LEGEND — T-SCORE CLASSIFICATION" if lang=="en" else "دليل الألوان — تصنيف الدرجات التائية"
+    add_section_title(legend_title)
+    legend_tbl2 = doc.add_table(rows=0, cols=3); legend_tbl2.style = 'Table Grid'
+    legend_entries = [
+        ("T ≥ 70",    "Markedly Atypical"  if lang=="en" else "ملحوظ بشكل واضح",  "Strong clinical concern. Thorough assessment and intervention strongly recommended."  if lang=="en" else "مصدر قلق سريري شديد. يُوصى بتقييم شامل وتدخل علاجي.", "FFCDD2"),
+        ("65–69",     "Likely Concern"     if lang=="en" else "مصدر قلق محتمل",   "Clinically significant. Warrants follow-up and further evaluation."                   if lang=="en" else "ذو دلالة سريرية. يستدعي متابعة وتقييماً إضافياً.",   "FFE0B2"),
+        ("60–64",     "Worth Monitoring"   if lang=="en" else "يستحق المتابعة",   "Mildly elevated. Monitor over time; intervention may be beneficial."                  if lang=="en" else "مرتفع قليلاً. يُتابع مع الوقت؛ قد يستفيد من التدخل.",  "FFF9C4"),
+        ("40–59",     "Average Range"      if lang=="en" else "ضمن المتوسط",      "Within normal limits. No clinical concern indicated."                                  if lang=="en" else "ضمن الحدود الطبيعية. لا مخاوف سريرية.",              "D4EDDA"),
+    ]
+    # header
+    hrow2 = legend_tbl2.add_row()
+    hdrs2 = (["T-Score","Classification","Meaning"] if lang=="en"
+             else ["الدرجة التائية","التصنيف","المعنى السريري"])
+    for ci2, htxt2 in enumerate(hdrs2):
+        cell2 = hrow2.cells[ci2]; cell2.text=""
+        p2_ = cell2.paragraphs[0]; set_rtl(p2_)
+        r2_ = p2_.add_run(htxt2); r2_.font.bold=True; r2_.font.size=Pt(9)
+        r2_.font.color.rgb=RGBColor(0xFF,0xFF,0xFF); r2_.font.name="Times New Roman"
+        tc2_ = cell2._tc; tcP2_ = tc2_.get_or_add_tcPr()
+        shd2_ = OxmlElement('w:shd'); shd2_.set(qn('w:val'),'clear')
+        shd2_.set(qn('w:color'),'auto'); shd2_.set(qn('w:fill'),'2D2926'); tcP2_.append(shd2_)
+    for t_range, classif, meaning, fill_hex in legend_entries:
+        lrow = legend_tbl2.add_row()
+        for ci2, (cell_txt2, cell_fill) in enumerate([
+            (t_range, fill_hex), (classif, fill_hex), (meaning, "FFFFFF")
+        ]):
+            cell2 = lrow.cells[ci2]; cell2.text=""
+            p2_ = cell2.paragraphs[0]; set_rtl(p2_)
+            r2_ = p2_.add_run(cell_txt2)
+            r2_.font.bold = (ci2 < 2); r2_.font.size=Pt(9); r2_.font.name="Times New Roman"
+            r2_.font.color.rgb = RGBColor(0,0,0)  # always black for readability
+            tc2_ = cell2._tc; tcP2_ = tc2_.get_or_add_tcPr()
+            shd2_ = OxmlElement('w:shd'); shd2_.set(qn('w:val'),'clear')
+            shd2_.set(qn('w:color'),'auto'); shd2_.set(qn('w:fill'), cell_fill); tcP2_.append(shd2_)
+            mg2_ = OxmlElement('w:tcMar')
+            for side2 in ['top','bottom','left','right']:
+                m2_ = OxmlElement(f'w:{side2}'); m2_.set(qn('w:w'),'60'); m2_.set(qn('w:type'),'dxa'); mg2_.append(m2_)
+            tcP2_.append(mg2_)
+    doc.add_paragraph().paragraph_format.space_after=Pt(6)
+
     # Score summary
     sec_title="SUBSCALE SCORE SUMMARY" if lang=="en" else "ملخص درجات المقاييس الفرعية"
     add_section_title(sec_title)
@@ -1064,6 +1160,8 @@ def build_word_report(report_text, scores, bar_bytes, pie_bytes,
                     pPr_.append(OxmlElement("w:bidi"))
                     jc_ = OxmlElement("w:jc"); jc_.set(qn("w:val"),"right"); pPr_.append(jc_)
                 r_   = p_.add_run(cell_txt); r_.font.size=Pt(8.5); r_.font.name="Times New Roman"
+                r_.font.bold = (ci == 2)  # bold on rating column
+                r_.font.color.rgb = RGBColor(0, 0, 0)  # always black
                 tc_  = cell._tc; tcP_ = tc_.get_or_add_tcPr()
                 shd_ = OxmlElement('w:shd'); shd_.set(qn('w:val'),'clear'); shd_.set(qn('w:color'),'auto')
                 if ci == 2:
@@ -1329,7 +1427,7 @@ if st.session_state.report_done:
         with btn_col:
             if st.button("↺ تقييم جديد", use_container_width=True):
                 for k in list(st.session_state.keys()):
-                    if k not in {"lang","access_granted","rel_sel_en","rel_sel_ar"}: del st.session_state[k]
+                    if k not in {"lang","access_granted"}: del st.session_state[k]
                 st.session_state.responses={}; st.session_state.submitted=False
                 st.session_state.report_done=False; st.rerun()
 
@@ -1429,16 +1527,12 @@ if lang=="en":
         child_grade = "" if child_grade=="—" else child_grade
     with c3:
         rater=st.text_input("Rater's Name (Parent / Caregiver)",placeholder="Name",key="rater_inp")
-        st.markdown("<div style='font-size:.85rem;color:#1C1917;margin-bottom:.2rem;'>Relationship to Child</div>",unsafe_allow_html=True)
-        rel_opts_en=["Mother","Father","Grandmother","Grandfather","Guardian","Other"]
-        if "rel_sel_en" not in st.session_state: st.session_state.rel_sel_en=None
-        rel_cols=st.columns(3)
-        for idx_r,opt_r in enumerate(rel_opts_en):
-            with rel_cols[idx_r%3]:
-                btn_type="primary" if st.session_state.rel_sel_en==opt_r else "secondary"
-                if st.button(opt_r,key=f"rel_en_{opt_r}",use_container_width=True,type=btn_type):
-                    st.session_state.rel_sel_en=opt_r; st.rerun()
-        relationship=st.session_state.rel_sel_en or ""
+        relationship=st.selectbox(
+            "Relationship to Child",
+            options=["—","Mother","Father","Grandmother","Grandfather","Guardian","Other"],
+            key="rel_sel_en"
+        )
+        relationship = "" if relationship=="—" else relationship
 
     st.markdown(f"""<div style="background:white;border:1px solid #DDD5C8;border-radius:4px;
         padding:1rem 1.4rem;margin:1.2rem 0;font-size:.88rem;color:#1C1917;line-height:1.9;">
@@ -1475,16 +1569,12 @@ else:
         child_grade = "" if child_grade=="—" else child_grade
     with c3:
         rater=st.text_input("اسم المُقيِّم (ولي الأمر)",placeholder="الاسم",key="rater_inp")
-        st.markdown("<div style='font-size:.85rem;color:#1C1917;margin-bottom:.2rem;direction:rtl;text-align:right;'>صلة القرابة بالطفل</div>",unsafe_allow_html=True)
-        rel_opts_ar=["الأم","الأب","الجدة","الجد","وصي","أخرى"]
-        if "rel_sel_ar" not in st.session_state: st.session_state.rel_sel_ar=None
-        rel_cols=st.columns(3)
-        for idx_r,opt_r in enumerate(rel_opts_ar):
-            with rel_cols[idx_r%3]:
-                btn_type="primary" if st.session_state.rel_sel_ar==opt_r else "secondary"
-                if st.button(opt_r,key=f"rel_ar_{opt_r}",use_container_width=True,type=btn_type):
-                    st.session_state.rel_sel_ar=opt_r; st.rerun()
-        relationship=st.session_state.rel_sel_ar or ""
+        relationship=st.selectbox(
+            "صلة القرابة بالطفل",
+            options=["—","الأم","الأب","الجدة","الجد","وصي","أخرى"],
+            key="rel_sel_ar"
+        )
+        relationship = "" if relationship=="—" else relationship
 
     st.markdown(f"""<div style="background:white;border:1px solid #DDD5C8;border-radius:4px;
         padding:1rem 1.4rem;margin:1.2rem 0;font-size:.88rem;color:#1C1917;line-height:1.9;
@@ -1565,13 +1655,17 @@ if submit and answered_count==80:
     child_age_v =child_age   or "—"
     rater_v     =rater       or ("Parent" if lang=="en" else "ولي الأمر")
     gender_v    =child_gender
+    # For Arabic UI: translate gender to English for the English PDF
+    gender_v_en = gender_v
+    if lang == "ar":
+        gender_v_en = "Male" if gender_v == "ذكر" else "Female"
     responses_v =dict(st.session_state.responses)
 
     spinner_txt=("⏳ Scoring and generating report..." if lang=="en"
                  else "⏳ جاري الحساب وإنشاء التقارير...")
     with st.spinner(spinner_txt):
         scores   =compute_scores(st.session_state.responses)
-        report_en=generate_report_en(child_name_v,child_age_v,gender_v,rater_v,scores)
+        report_en=generate_report_en(child_name_v,child_age_v,gender_v_en,rater_v,scores)
 
         # Arabic mode → also generate Arabic report
         report_ar=""
@@ -1583,7 +1677,7 @@ if submit and answered_count==80:
             bar_b=make_bar_chart(scores,lang); pie_b=make_pie_chart(responses_v)
             # English report → always PDF
             buf_pdf_en_=build_pdf_report_en(report_en,scores,bar_b,pie_b,
-                                             child_name_v,child_age_v,gender_v,rater_v,responses_v)
+                                             child_name_v,child_age_v,gender_v_en,rater_v,responses_v)
             fn_pdf_en_=f"{child_name_v.replace(' ','_')}_Conners_EN.pdf"
             if lang=="ar":
                 # Arabic report → Word
@@ -1601,7 +1695,7 @@ if submit and answered_count==80:
         st.session_state["report_ar"]   =report_ar
         st.session_state["child_name"]  =child_name_v
         st.session_state["child_age"]   =child_age_v
-        st.session_state["child_gender"]=gender_v
+        st.session_state["child_gender"]=gender_v_en
         st.session_state["rater"]       =rater_v
         st.session_state.report_done    =True
         st.rerun()
