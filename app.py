@@ -281,7 +281,8 @@ def make_bar_chart(scores, lang):
     for key in "ABCDEFGHIJKLMN":
         info = SUBSCALES[key]
         t    = scores[key]["t"]
-        labels.append(info["name_en"] if lang=="en" else info["name_ar"])
+        # Always use English labels in the chart to avoid font/rendering issues
+        labels.append(info["name_en"])
         t_vals.append(t); colors_.append(get_bar_color(t))
 
     fig, ax = plt.subplots(figsize=(12, 7))
@@ -297,8 +298,7 @@ def make_bar_chart(scores, lang):
     ax.set_yticks(y_pos); ax.set_yticklabels(labels, fontsize=9.5, fontfamily='DejaVu Sans')
     ax.set_xlim(20, 95)
     ax.set_xlabel('T-Score', fontsize=11, fontweight='bold', color='#1C1917')
-    title = "Conners' CPRS-R:L — T-Score Profile" if lang=="en" \
-            else "مقياس كونرز — الدرجات التائية للمقاييس الفرعية"
+    title = "Conners' CPRS-R:L — T-Score Profile"
     ax.set_title(title, fontsize=13, fontweight='bold', color='#1C1917', pad=14)
     ax.legend(loc='lower right', fontsize=8.5, framealpha=0.7)
     ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
@@ -336,6 +336,11 @@ def build_score_block_en(scores):
 
 def generate_report_en(child_name, age, gender, rater, scores):
     elevated = [k for k in "ABCDEFGHIJKLMN" if scores[k]["t"] >= 65]
+    adhd_index_t = scores["H"]["t"]
+    inatt_t      = scores["L"]["t"]
+    hyper_t      = scores["M"]["t"]
+    total_adhd_t = scores["N"]["t"]
+    cgi_total_t  = scores["K"]["t"]
     prompt = f"""You are a licensed child psychologist writing a professional CPRS-R:L assessment report.
 
 CHILD: {child_name} | AGE: {age} | GENDER: {gender} | RATER: {rater}
@@ -347,12 +352,22 @@ SUBSCALE T-SCORES (T≥65 = clinically significant; T≥70 = markedly atypical):
 
 ELEVATED SCALES (T≥65): {', '.join(elevated) if elevated else 'None'}
 
+KEY ADHD INDICATORS:
+- ADHD Index (H): T={adhd_index_t}
+- DSM-IV Inattentive (L): T={inatt_t}
+- DSM-IV Hyperactive-Impulsive (M): T={hyper_t}
+- DSM-IV Total (N): T={total_adhd_t}
+- CGI Total (K): T={cgi_total_t}
+
 RULES:
 - Do NOT diagnose. State findings as hypotheses requiring clinical judgment.
 - Use formal clinical language.
 - Be specific to the T-scores above.
 - No markdown symbols (**, ##, ---).
 - Section titles: ALL CAPS numbered. Example: 1. REFERRAL & ASSESSMENT OVERVIEW
+- The primary focus of the report is ADHD and related symptoms (inattention, hyperactivity, impulsivity).
+  Prioritize and expand ADHD subscale discussion. Identify whether the profile suggests primarily
+  inattentive, primarily hyperactive/impulsive, or combined presentation.
 
 REPORT STRUCTURE:
 
@@ -364,29 +379,30 @@ Date | {date.today().strftime('%B %d, %Y')}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 CLINICAL SUMMARY
-3–5 sentences covering the overall profile, most elevated scales, and clinical significance.
+3–5 sentences covering the ADHD index, most elevated scales, and clinical significance.
 
 1. REFERRAL & ASSESSMENT OVERVIEW
 Instrument description, purpose, administration context, rating period (past month).
 
-2. SUBSCALE PROFILE ANALYSIS
-For each scale T≥60: dedicated paragraph with T-score, behavioral correlates, clinical significance.
+2. ADHD SUBSCALE ANALYSIS
+Detailed analysis of scales H, L, M, N. Identify the ADHD presentation pattern (inattentive /
+hyperactive-impulsive / combined). Interpret T-scores and behavioral correlates in depth.
+
+3. OTHER CONTENT SUBSCALES PROFILE
+For each non-ADHD scale T≥60: dedicated paragraph with T-score, behavioral correlates, clinical significance.
 For T<60: one brief line noting within-normal-limits finding.
 
-3. DSM-IV SYMPTOM SUBSCALES (L, M, N)
-Interpret the three DSM-IV subscales and their implications for diagnostic consideration.
-
-4. CLINICAL GLOBAL INDEX (H, I, J, K)
+4. CLINICAL GLOBAL INDEX (I, J, K)
 Interpret the CGI scales. Discuss overall severity of behavioral concerns.
 
 5. STRENGTHS & PROTECTIVE FACTORS
 Identify subscales in average or below-average range as relative strengths.
 
 6. INTEGRATED CLINICAL IMPRESSIONS
-Synthesize the profile. What overall pattern emerges? Primary areas of concern?
+Synthesize the ADHD profile. What overall pattern emerges? Primary areas of concern?
 
 7. RECOMMENDATIONS
-Evidence-based recommendations for intervention, monitoring, referral, or further assessment.
+Evidence-based recommendations for ADHD intervention, monitoring, referral, or further assessment.
 
 8. SUMMARY
 One paragraph for clinical records:
@@ -406,9 +422,16 @@ def generate_report_ar(child_name, age, gender, rater, scores):
         f"  {k}. {SUBSCALES[k]['name_ar']}: خام={scores[k]['raw']}/{scores[k]['max_raw']}, تائي={scores[k]['t']} — {get_level_ar(scores[k]['t'])}"
         for k in "ABCDEFGHIJKLMN"
     )
+    # Determine likely ADHD pattern from subscale scores
+    adhd_index_t   = scores["H"]["t"]
+    inatt_t        = scores["L"]["t"]
+    hyper_t        = scores["M"]["t"]
+    total_adhd_t   = scores["N"]["t"]
+    cgi_total_t    = scores["K"]["t"]
+
     prompt = f"""أنت طبيب نفسي للأطفال تكتب تقريراً سريرياً احترافياً لمقياس كونرز للوالدين (النسخة المراجعة الطويلة).
 
-الطفل: {child_name} | السن: {age} | النوع: {gender} | المُقيِّم: {rater}
+الطفل: {child_name} (يُكتب بالعربية: قدِّم تعريبًا صوتيًا مناسبًا للاسم) | السن: {age} | النوع: {gender} | المُقيِّم: {rater}
 المقياس: مقياس كونرز للوالدين — نسخة مراجعة طويلة (CPRS-R:L)
 التاريخ: {date.today().strftime('%Y/%m/%d')}
 
@@ -417,11 +440,20 @@ def generate_report_ar(child_name, age, gender, rater, scores):
 
 المقاييس المرتفعة (T≥65): {', '.join(elevated_ar) if elevated_ar else 'لا يوجد'}
 
+مؤشرات ADHD الرئيسية:
+- مؤشر ADHD (H): T={adhd_index_t}
+- نقص الانتباه DSM-IV (L): T={inatt_t}
+- فرط الحركة والاندفاعية DSM-IV (M): T={hyper_t}
+- المجموع الكلي DSM-IV (N): T={total_adhd_t}
+- المؤشر السريري العام-المجموع (K): T={cgi_total_t}
+
 قواعد صارمة:
 - لا تضع تشخيصاً. أشر إلى النتائج كفرضيات تحتاج إلى حكم سريري.
-- استخدم لغة سريرية رسمية بالعربية الكاملة. لا إنجليزية إلا للاختصارات الطبية (CPRS-R:L, DSM-IV, ADHD, CGI).
+- استخدم لغة سريرية رسمية بالعربية الكاملة. لا إنجليزية إلا للاختصارات الطبية (CPRS-R:L, DSM-IV, ADHD, CGI, T-score).
 - لا رموز markdown (**, ##, ---).
 - عناوين الأقسام: أرقام + عنوان. مثال: ١. نظرة عامة على التقييم
+- التركيز الأساسي للتقرير هو اضطراب ADHD وأعراضه (نقص الانتباه، فرط الحركة، الاندفاعية) والمقاييس ذات الصلة.
+- عند ذكر اسم الطفل في التقرير، استخدم التعريب الصوتي العربي للاسم الإنجليزي المُدخل.
 
 هيكل التقرير:
 
@@ -433,16 +465,33 @@ def generate_report_ar(child_name, age, gender, rater, scores):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ملخص سريري
-٣–٥ جمل: تلخيص المقياس العام، المقاييس الأكثر ارتفاعاً، والدلالة السريرية.
+٣–٥ جمل: تلخيص المقياس العام مع التركيز على مؤشرات ADHD، المقاييس الأكثر ارتفاعاً، والدلالة السريرية.
 
 ١. نظرة عامة على التقييم
-٢. تحليل المقاييس الفرعية
-٣. مقاييس أعراض DSM-IV
+وصف المقياس، الغرض منه، سياق التطبيق، فترة التقييم (الشهر الماضي).
+
+٢. تحليل مؤشرات ADHD
+ناقش بالتفصيل: مؤشر ADHD (H)، مقياس نقص الانتباه DSM-IV (L)، مقياس فرط الحركة والاندفاعية DSM-IV (M)، المجموع الكلي (N).
+حدد النمط المحتمل: هل الأعراض أكثر في نقص الانتباه، أم فرط الحركة/الاندفاعية، أم كليهما؟
+
+٣. تحليل المقاييس الفرعية الأخرى
+لكل مقياس T≥60: فقرة مخصصة بالدرجة التائية والمؤشرات السلوكية والدلالة السريرية.
+للمقاييس T<60: سطر واحد موجز يشير إلى أنها ضمن الحدود الطبيعية.
+
 ٤. المؤشر السريري العام (CGI)
+فسّر مقاييس CGI (I: الاندفاعية وعدم الهدوء، J: التقلب الانفعالي، K: المجموع العام).
+
 ٥. نقاط القوة والعوامل الوقائية
+حدد المقاييس ضمن المتوسط أو دونه كنقاط قوة نسبية.
+
 ٦. الانطباعات السريرية المتكاملة
+ما النمط الكلي الذي يبرز؟ ما المجالات الأساسية للقلق من منظور ADHD؟
+
 ٧. التوصيات
+توصيات مبنية على الأدلة للتدخل، المتابعة، الإحالة، أو التقييم الإضافي — مع التركيز على ADHD.
+
 ٨. الملخص — فقرة واحدة مناسبة للسجلات السريرية.
+"وفقاً لمقياس CPRS-R:L الذي أكمله {rater}، يُظهر الطفل (التعريب الصوتي للاسم {child_name}) بعمر {age}..."
 """
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     r = client.chat.completions.create(
@@ -876,110 +925,47 @@ if not st.session_state.access_granted:
     st.stop()
 
 # ══════════════════════════════════════════════════════════════
-#  RESULT DISPLAY (after submit)
+#  RESULT DISPLAY (after submit) — email sent, thank-you only
 # ══════════════════════════════════════════════════════════════
 if st.session_state.report_done:
     scores     = st.session_state["scores"]
-    rt_en      = st.session_state["report_en"]
-    rt_ar      = st.session_state.get("report_ar","")
     child_name = st.session_state["child_name"]
-    age        = st.session_state["child_age"]
-    gender     = st.session_state["child_gender"]
-    rater      = st.session_state["rater"]
     lang       = st.session_state.lang
 
     if os.path.exists(LOGO_FILE):
         c1,c2,c3=st.columns([1,2,1])
         with c2: st.image(LOGO_FILE, use_container_width=True)
 
-    st.markdown(f"""<div class="thank-you">
-        <h2>{'Report Generated' if lang=='en' else 'تم إنشاء التقرير'}</h2>
-        <p>{child_name}</p>
-    </div>""", unsafe_allow_html=True)
-
-    bar_bytes = make_bar_chart(scores, lang)
-    pie_bytes = make_pie_chart(st.session_state["responses"])
-
-    # Score table
-    st.markdown(f"""<div style="font-family:'Cormorant Garamond',serif;font-size:1.3rem;
-        font-weight:400;color:var(--deep);text-align:center;margin:1rem 0 .5rem;
-        padding-bottom:.5rem;border-bottom:1px solid var(--border);">
-        {'Subscale Score Summary' if lang=='en' else 'ملخص الدرجات التائية'}
-    </div>""", unsafe_allow_html=True)
-    score_data=[]
-    for key in "ABCDEFGHIJKLMN":
-        s=scores[key]
-        score_data.append({
-            ("Scale" if lang=="en" else "المقياس"): f"{key}. {SUBSCALES[key]['name_en'] if lang=='en' else SUBSCALES[key]['name_ar']}",
-            ("Raw" if lang=="en" else "الخام"): f"{s['raw']}/{s['max_raw']}",
-            "T-Score": s['t'],
-            ("Classification" if lang=="en" else "التصنيف"): get_level_en(s['t']) if lang=="en" else get_level_ar(s['t']),
-            "": "🔴" if s['t']>=70 else "🟠" if s['t']>=65 else "🟡" if s['t']>=60 else "🟢"
-        })
-    st.dataframe(score_data, use_container_width=True, hide_index=True)
-
-    # Charts
-    c1_,c2_=st.columns([3,1])
-    with c1_: st.image(bar_bytes, use_container_width=True)
-    with c2_: st.image(pie_bytes, use_container_width=True)
-
-    # Report text preview
     if lang=="en":
-        st.text_area("", value=rt_en, height=400, label_visibility="collapsed")
-    else:
-        tab_en_, tab_ar_ = st.tabs(["🇬🇧 English Report", "🇸🇦 التقرير العربي"])
-        with tab_en_: st.text_area("", value=rt_en, height=400, label_visibility="collapsed")
-        with tab_ar_: st.text_area("", value=rt_ar, height=400, label_visibility="collapsed")
-
-    st.markdown(f'<div class="progress-wrap"><div class="progress-fill" style="width:100%"></div></div>',
-                unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    fn_en=f"{child_name.replace(' ','_')}_Conners_EN.docx"
-    fn_ar=f"{child_name.replace(' ','_')}_Conners_AR.docx"
-
-    if lang=="en":
-        # English mode: one doc
-        dl1,dl2,_=st.columns(3)
-        with dl1:
-            buf_en=build_word_report(rt_en,scores,bar_bytes,pie_bytes,child_name,age,gender,rater,"en")
-            st.download_button("📄 Download English Report (.docx)",data=buf_en,file_name=fn_en,
-                               mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                               use_container_width=True)
-        with dl2:
-            if st.button("📧 Send via Email",use_container_width=True):
-                try:
-                    b2=make_bar_chart(scores,"en"); p2=make_pie_chart(st.session_state["responses"])
-                    buf2=build_word_report(rt_en,scores,b2,p2,child_name,age,gender,rater,"en")
-                    send_email_en(child_name,buf2,fn_en,scores)
-                    st.success(f"✅ Sent to {RECIPIENT_EMAIL}")
-                except Exception as e: st.error(f"Email error: {e}")
-    else:
-        # Arabic mode: EN doc + AR doc
-        dl1,dl2,dl3,dl4=st.columns(4)
-        with dl1:
-            buf_en=build_word_report(rt_en,scores,bar_bytes,pie_bytes,child_name,age,gender,rater,"en")
-            st.download_button("📄 English (.docx)",data=buf_en,file_name=fn_en,
-                               mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                               use_container_width=True)
-        with dl2:
-            buf_ar=build_word_report(rt_ar,scores,bar_bytes,pie_bytes,child_name,age,gender,rater,"ar")
-            st.download_button("📄 عربي (.docx)",data=buf_ar,file_name=fn_ar,
-                               mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                               use_container_width=True)
-        with dl3:
-            if st.button("📧 إرسال بالبريد",use_container_width=True):
-                try:
-                    b2=make_bar_chart(scores,"en"); p2=make_pie_chart(st.session_state["responses"])
-                    ben=build_word_report(rt_en,scores,b2,p2,child_name,age,gender,rater,"en")
-                    bar=build_word_report(rt_ar,scores,b2,p2,child_name,age,gender,rater,"ar")
-                    send_email_ar(child_name,ben,bar,fn_en,fn_ar,scores)
-                    st.success(f"✅ تم الإرسال إلى {RECIPIENT_EMAIL}")
-                except Exception as e: st.error(f"خطأ: {e}")
-        with dl4:
-            if st.button("↺ New / جديد",use_container_width=True):
+        st.markdown(f"""<div class="thank-you">
+            <h2>Report Submitted Successfully</h2>
+            <p style="font-size:1.05rem;margin-top:.5rem;">{child_name}</p>
+            <p style="font-size:.9rem;color:#8B7355;margin-top:.8rem;">
+                The report has been sent to the clinic email.<br>
+                You may now close this window.
+            </p>
+        </div>""", unsafe_allow_html=True)
+        _,btn_col,_=st.columns([2,2,2])
+        with btn_col:
+            if st.button("↺ New Assessment", use_container_width=True):
                 for k in list(st.session_state.keys()):
                     if k not in {"lang","access_granted"}: del st.session_state[k]
+                st.session_state.responses={}; st.session_state.submitted=False
+                st.session_state.report_done=False; st.rerun()
+    else:
+        st.markdown(f"""<div class="thank-you" style="direction:rtl;">
+            <h2>تم إرسال التقرير بنجاح</h2>
+            <p style="font-size:1.05rem;margin-top:.5rem;">{child_name}</p>
+            <p style="font-size:.9rem;color:#8B7355;margin-top:.8rem;">
+                تم إرسال التقرير إلى البريد الإلكتروني للعيادة.<br>
+                يمكنك إغلاق هذه النافذة الآن.
+            </p>
+        </div>""", unsafe_allow_html=True)
+        _,btn_col,_=st.columns([2,2,2])
+        with btn_col:
+            if st.button("↺ تقييم جديد", use_container_width=True):
+                for k in list(st.session_state.keys()):
+                    if k not in {"lang","access_granted","rel_sel_en","rel_sel_ar"}: del st.session_state[k]
                 st.session_state.responses={}; st.session_state.submitted=False
                 st.session_state.report_done=False; st.rerun()
 
@@ -1012,12 +998,12 @@ else:
 # Language toggle
 c1,c2,c3=st.columns([2,2,4])
 with c1:
-    if st.button("🇬🇧 English",use_container_width=True,
+    if st.button("English",use_container_width=True,
                  type="primary" if lang=="en" else "secondary"):
         st.session_state.lang="en"; st.session_state.responses={}
         st.session_state.submitted=False; st.session_state.report_done=False; st.rerun()
 with c2:
-    if st.button("🇸🇦 العربية",use_container_width=True,
+    if st.button("العربية",use_container_width=True,
                  type="primary" if lang=="ar" else "secondary"):
         st.session_state.lang="ar"; st.session_state.responses={}
         st.session_state.submitted=False; st.session_state.report_done=False; st.rerun()
@@ -1039,8 +1025,17 @@ if lang=="en":
                               horizontal=True,label_visibility="visible")
         child_grade =st.text_input("School Grade",placeholder="e.g. Grade 3",key="child_grade_inp")
     with c3:
-        rater       =st.text_input("Rater's Name (Parent / Caregiver)",placeholder="Name",key="rater_inp")
-        relationship=st.text_input("Relationship to Child",placeholder="e.g. Mother",key="rel_inp")
+        rater=st.text_input("Rater's Name (Parent / Caregiver)",placeholder="Name",key="rater_inp")
+        st.markdown("<div style='font-size:.85rem;color:#1C1917;margin-bottom:.2rem;'>Relationship to Child</div>",unsafe_allow_html=True)
+        rel_opts_en=["Mother","Father","Grandmother","Grandfather","Guardian","Other"]
+        if "rel_sel_en" not in st.session_state: st.session_state.rel_sel_en=None
+        rel_cols=st.columns(3)
+        for idx_r,opt_r in enumerate(rel_opts_en):
+            with rel_cols[idx_r%3]:
+                btn_type="primary" if st.session_state.rel_sel_en==opt_r else "secondary"
+                if st.button(opt_r,key=f"rel_en_{opt_r}",use_container_width=True,type=btn_type):
+                    st.session_state.rel_sel_en=opt_r; st.rerun()
+        relationship=st.session_state.rel_sel_en or ""
 
     st.markdown(f"""<div style="background:white;border:1px solid #DDD5C8;border-radius:4px;
         padding:1rem 1.4rem;margin:1.2rem 0;font-size:.88rem;color:#1C1917;line-height:1.9;">
@@ -1064,15 +1059,24 @@ else:
         بيانات الطفل</div>""", unsafe_allow_html=True)
     c1,c2,c3=st.columns(3)
     with c1:
-        child_name=st.text_input("اسم الطفل كاملاً",placeholder="الاسم الأول والأخير",key="child_name_inp")
+        child_name=st.text_input("اسم الطفل (بالإنجليزية)",placeholder="e.g. Ahmed Hassan",key="child_name_inp")
         child_age =st.text_input("السن",placeholder="مثال: 8",key="child_age_inp")
     with c2:
         child_gender=st.radio("النوع",["ذكر","أنثى"],key="child_gender_inp",
                               horizontal=True,label_visibility="visible")
         child_grade =st.text_input("الصف الدراسي",placeholder="مثال: الصف الثالث",key="child_grade_inp")
     with c3:
-        rater       =st.text_input("اسم المُقيِّم (ولي الأمر)",placeholder="الاسم",key="rater_inp")
-        relationship=st.text_input("صلة القرابة بالطفل",placeholder="مثال: الأم",key="rel_inp")
+        rater=st.text_input("اسم المُقيِّم (ولي الأمر)",placeholder="الاسم",key="rater_inp")
+        st.markdown("<div style='font-size:.85rem;color:#1C1917;margin-bottom:.2rem;direction:rtl;text-align:right;'>صلة القرابة بالطفل</div>",unsafe_allow_html=True)
+        rel_opts_ar=["الأم","الأب","الجدة","الجد","وصي","أخرى"]
+        if "rel_sel_ar" not in st.session_state: st.session_state.rel_sel_ar=None
+        rel_cols=st.columns(3)
+        for idx_r,opt_r in enumerate(rel_opts_ar):
+            with rel_cols[idx_r%3]:
+                btn_type="primary" if st.session_state.rel_sel_ar==opt_r else "secondary"
+                if st.button(opt_r,key=f"rel_ar_{opt_r}",use_container_width=True,type=btn_type):
+                    st.session_state.rel_sel_ar=opt_r; st.rerun()
+        relationship=st.session_state.rel_sel_ar or ""
 
     st.markdown(f"""<div style="background:white;border:1px solid #DDD5C8;border-radius:4px;
         padding:1rem 1.4rem;margin:1.2rem 0;font-size:.88rem;color:#1C1917;line-height:1.9;
