@@ -17,6 +17,18 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
+# PDF
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import cm, mm
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                 TableStyle, Image as RLImage, HRFlowable,
+                                 PageBreak, KeepTogether)
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 # ══════════════════════════════════════════════════════════════
 #  CONFIG
 # ══════════════════════════════════════════════════════════════
@@ -502,10 +514,295 @@ def generate_report_ar(child_name, age, gender, rater, scores):
     return r.choices[0].message.content.strip()
 
 # ══════════════════════════════════════════════════════════════
-#  WORD DOC BUILDER  (EN or AR)
+#  PDF REPORT BUILDER  (English only)
+# ══════════════════════════════════════════════════════════════
+# Color palette
+PDF_WARM    = colors.HexColor('#8B7355')
+PDF_DARK    = colors.HexColor('#1C1917')
+PDF_CREAM   = colors.HexColor('#F7F3EE')
+PDF_BORDER  = colors.HexColor('#DDD5C8')
+PDF_ACCENT  = colors.HexColor('#C4956A')
+PDF_RED     = colors.HexColor('#C62828')
+PDF_ORANGE  = colors.HexColor('#F57C00')
+PDF_YELLOW  = colors.HexColor('#FBC02D')
+PDF_GREEN   = colors.HexColor('#388E3C')
+PDF_HEADER  = colors.HexColor('#2D2926')
+
+def _t_band_color(t):
+    if t >= 70: return PDF_RED
+    if t >= 65: return PDF_ORANGE
+    if t >= 60: return PDF_YELLOW
+    return PDF_GREEN
+
+def _t_band_label(t):
+    if t >= 70: return "Markedly Atypical"
+    if t >= 65: return "Likely Concern"
+    if t >= 60: return "Worth Monitoring"
+    if t >= 40: return "Average Range"
+    return "Below Average"
+
+def _make_pdf_styles():
+    base = getSampleStyleSheet()
+    styles = {}
+    styles['title'] = ParagraphStyle('title', fontName='Helvetica-Bold',
+        fontSize=16, textColor=PDF_DARK, spaceAfter=4, alignment=TA_CENTER)
+    styles['subtitle'] = ParagraphStyle('subtitle', fontName='Helvetica',
+        fontSize=9, textColor=PDF_WARM, spaceAfter=2, alignment=TA_CENTER)
+    styles['section'] = ParagraphStyle('section', fontName='Helvetica-Bold',
+        fontSize=11, textColor=PDF_WARM, spaceBefore=14, spaceAfter=4)
+    styles['body'] = ParagraphStyle('body', fontName='Helvetica',
+        fontSize=9.5, textColor=PDF_DARK, leading=14, spaceAfter=5)
+    styles['small'] = ParagraphStyle('small', fontName='Helvetica',
+        fontSize=8, textColor=PDF_WARM, leading=11)
+    styles['bold_body'] = ParagraphStyle('bold_body', fontName='Helvetica-Bold',
+        fontSize=9.5, textColor=PDF_DARK, leading=14, spaceAfter=3)
+    styles['summary_box'] = ParagraphStyle('summary_box', fontName='Helvetica',
+        fontSize=9.5, textColor=PDF_DARK, leading=14, spaceAfter=0,
+        leftIndent=6, rightIndent=6)
+    return styles
+
+def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
+                         child_name, age, gender, rater, responses_dict):
+    """Build English PDF report. Returns BytesIO."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm,
+        topMargin=2*cm, bottomMargin=2*cm)
+    S = _make_pdf_styles()
+    W = A4[0] - 4*cm   # usable width
+    story = []
+
+    # ── Logo ──
+    if os.path.exists(LOGO_FILE):
+        try:
+            logo = RLImage(LOGO_FILE, width=5*cm, height=2.2*cm)
+            logo.hAlign = 'CENTER'
+            story.append(logo)
+            story.append(Spacer(1, 4))
+        except: pass
+
+    # ── Title block ──
+    story.append(Paragraph("Conners' Parent Rating Scale — Clinical Report", S['title']))
+    story.append(Paragraph("CPRS-R:L — Revised: Long Version", S['subtitle']))
+    story.append(HRFlowable(width=W, thickness=1, color=PDF_BORDER, spaceAfter=10))
+
+    # ── Demographics table ──
+    demo_data = [
+        [Paragraph('<b>Child</b>', S['small']),  Paragraph(child_name or '—', S['body']),
+         Paragraph('<b>Age</b>', S['small']),    Paragraph(str(age) or '—', S['body'])],
+        [Paragraph('<b>Gender</b>', S['small']), Paragraph(gender or '—', S['body']),
+         Paragraph('<b>Rater</b>', S['small']),  Paragraph(rater or '—', S['body'])],
+        [Paragraph('<b>Date</b>', S['small']),   Paragraph(date.today().strftime('%B %d, %Y'), S['body']),
+         Paragraph('<b>Assessment</b>', S['small']), Paragraph('CPRS-R:L (80 items, 0–3)', S['body'])],
+    ]
+    demo_tbl = Table(demo_data, colWidths=[2.2*cm, 6.5*cm, 2.2*cm, 6.5*cm])
+    demo_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), PDF_CREAM),
+        ('BOX', (0,0), (-1,-1), 0.5, PDF_BORDER),
+        ('INNERGRID', (0,0), (-1,-1), 0.3, PDF_BORDER),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(demo_tbl)
+    story.append(Spacer(1, 10))
+
+    # ── Subscale score summary table ──
+    story.append(Paragraph("SUBSCALE SCORE SUMMARY", S['section']))
+    score_header = [
+        Paragraph('<b>Scale</b>', S['small']),
+        Paragraph('<b>Raw</b>', S['small']),
+        Paragraph('<b>T-Score</b>', S['small']),
+        Paragraph('<b>Classification</b>', S['small']),
+        Paragraph('<b>Band</b>', S['small']),
+    ]
+    score_rows = [score_header]
+    for key in "ABCDEFGHIJKLMN":
+        s = scores[key]
+        t = s['t']
+        band_col = _t_band_color(t)
+        score_rows.append([
+            Paragraph(f"{key}. {SUBSCALES[key]['name_en']}", S['body']),
+            Paragraph(f"{s['raw']}/{s['max_raw']}", S['body']),
+            Paragraph(f"<b>{t}</b>", S['body']),
+            Paragraph(_t_band_label(t), S['body']),
+            Paragraph('', S['body']),  # colored cell via style
+        ])
+    score_tbl = Table(score_rows, colWidths=[6.5*cm, 1.8*cm, 1.8*cm, 4*cm, 3.4*cm])
+    ts_cmds = [
+        ('BACKGROUND', (0,0), (-1,0), PDF_HEADER),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 8.5),
+        ('BOX', (0,0), (-1,-1), 0.5, PDF_BORDER),
+        ('INNERGRID', (0,0), (-1,-1), 0.3, PDF_BORDER),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, PDF_CREAM]),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+    ]
+    for row_i, key in enumerate("ABCDEFGHIJKLMN", start=1):
+        t = scores[key]['t']
+        ts_cmds.append(('BACKGROUND', (4, row_i), (4, row_i), _t_band_color(t)))
+    score_tbl.setStyle(TableStyle(ts_cmds))
+    story.append(score_tbl)
+    story.append(Spacer(1, 8))
+
+    # ── Bar chart ──
+    story.append(Paragraph("T-SCORE PROFILE CHART", S['section']))
+    bar_img = RLImage(io.BytesIO(bar_bytes), width=W, height=W*0.52)
+    bar_img.hAlign = 'CENTER'
+    story.append(bar_img)
+    story.append(Spacer(1, 6))
+
+    # ── Pie + ADHD highlight side by side ──
+    story.append(Paragraph("RESPONSE DISTRIBUTION & ADHD INDICATORS", S['section']))
+    pie_img = RLImage(io.BytesIO(pie_bytes), width=7.5*cm, height=5.5*cm)
+
+    adhd_keys = [("H","ADHD Index"),("L","DSM-IV Inattentive"),
+                 ("M","DSM-IV Hyperactive-Impulsive"),("N","DSM-IV Total")]
+    adhd_rows = [[Paragraph('<b>Scale</b>',S['small']),
+                  Paragraph('<b>T</b>',S['small']),
+                  Paragraph('<b>Classification</b>',S['small'])]]
+    for k, lbl in adhd_keys:
+        t = scores[k]['t']
+        adhd_rows.append([Paragraph(lbl, S['body']),
+                          Paragraph(f"<b>{t}</b>", S['body']),
+                          Paragraph(_t_band_label(t), S['body'])])
+    adhd_tbl = Table(adhd_rows, colWidths=[4.5*cm, 1.2*cm, 3.8*cm])
+    adhd_ts = [
+        ('BACKGROUND', (0,0), (-1,0), PDF_HEADER),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 8.5),
+        ('BOX', (0,0), (-1,-1), 0.5, PDF_BORDER),
+        ('INNERGRID', (0,0), (-1,-1), 0.3, PDF_BORDER),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, PDF_CREAM]),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+    ]
+    for row_i, (k,_) in enumerate(adhd_keys, start=1):
+        t = scores[k]['t']
+        adhd_ts.append(('BACKGROUND', (1, row_i), (1, row_i), _t_band_color(t)))
+        adhd_ts.append(('TEXTCOLOR', (1, row_i), (1, row_i), colors.white))
+    adhd_tbl.setStyle(TableStyle(adhd_ts))
+
+    side_tbl = Table([[pie_img, adhd_tbl]], colWidths=[8*cm, W-8*cm])
+    side_tbl.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                                   ('LEFTPADDING',(1,0),(1,0),12)]))
+    story.append(side_tbl)
+    story.append(Spacer(1, 6))
+
+    # ── Clinical narrative ──
+    story.append(HRFlowable(width=W, thickness=0.5, color=PDF_BORDER))
+    story.append(Paragraph("CLINICAL NARRATIVE REPORT", S['section']))
+    sec_en_pat = re.compile(r'^\d+\.\s+[A-Z][A-Z\s&/()\-:]+$')
+    header_words = {"CONNERS' PARENT RATING SCALE — CLINICAL REPORT","CLINICAL SUMMARY"}
+
+    for line in report_text.split('\n'):
+        ls = line.strip()
+        if not ls:
+            story.append(Spacer(1, 4)); continue
+        if ls.startswith('━') or ls.startswith('═'):
+            story.append(HRFlowable(width=W, thickness=0.4, color=PDF_BORDER, spaceAfter=4)); continue
+        is_section = (sec_en_pat.match(ls) or ls in header_words or
+                      ls.upper() in header_words or ls == "CLINICAL SUMMARY")
+        if is_section:
+            story.append(Paragraph(ls, S['section'])); continue
+        # inline table rows (pipe-separated)
+        if '|' in ls:
+            parts = [p.strip() for p in ls.split('|') if p.strip()]
+            if len(parts) >= 2:
+                skip = [("field","value"),("subscale","raw")]
+                if (parts[0].lower(), parts[1].lower()) not in skip:
+                    row_data = [[Paragraph(p, S['body']) for p in parts]]
+                    col_w = W / len(parts)
+                    mini_tbl = Table(row_data, colWidths=[col_w]*len(parts))
+                    mini_tbl.setStyle(TableStyle([
+                        ('BOX',(0,0),(-1,-1),0.3,PDF_BORDER),
+                        ('INNERGRID',(0,0),(-1,-1),0.3,PDF_BORDER),
+                        ('BACKGROUND',(0,0),(-1,-1),PDF_CREAM),
+                        ('TOPPADDING',(0,0),(-1,-1),3),
+                        ('BOTTOMPADDING',(0,0),(-1,-1),3),
+                        ('LEFTPADDING',(0,0),(-1,-1),5),
+                    ]))
+                    story.append(mini_tbl); continue
+        story.append(Paragraph(ls, S['body']))
+
+    story.append(Spacer(1, 10))
+    story.append(HRFlowable(width=W, thickness=0.5, color=PDF_BORDER))
+
+    # ── Item responses table (~2 pages) ──
+    story.append(PageBreak())
+    story.append(Paragraph("ITEM RESPONSES — FULL RATING TABLE", S['section']))
+    story.append(Paragraph(
+        "The following table shows each item number, the item text, and the rating assigned by the rater. "
+        "Rating key: 0 = Not at all · 1 = Just a little · 2 = Pretty much · 3 = Very much",
+        S['small']))
+    story.append(Spacer(1, 6))
+
+    rating_labels = {0:"0 — Not at all", 1:"1 — Just a little",
+                     2:"2 — Pretty much",  3:"3 — Very much"}
+    rating_colors = {0:PDF_GREEN, 1:PDF_YELLOW, 2:PDF_ORANGE, 3:PDF_RED}
+
+    item_header = [
+        Paragraph('<b>#</b>', S['small']),
+        Paragraph('<b>Item</b>', S['small']),
+        Paragraph('<b>Rating</b>', S['small']),
+    ]
+    item_rows = [item_header]
+    item_ts_cmds = [
+        ('BACKGROUND', (0,0), (-1,0), PDF_HEADER),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 8),
+        ('BOX', (0,0), (-1,-1), 0.5, PDF_BORDER),
+        ('INNERGRID', (0,0), (-1,-1), 0.3, PDF_BORDER),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+    ]
+    for i, item_text in enumerate(ITEMS_EN):
+        item_num = i + 1
+        val = responses_dict.get(item_num, 0)
+        bg = colors.white if i % 2 == 0 else PDF_CREAM
+        item_ts_cmds.append(('BACKGROUND', (0, item_num), (1, item_num), bg))
+        item_ts_cmds.append(('BACKGROUND', (2, item_num), (2, item_num), rating_colors[val]))
+        item_ts_cmds.append(('TEXTCOLOR', (2, item_num), (2, item_num), colors.white))
+        item_rows.append([
+            Paragraph(str(item_num), S['small']),
+            Paragraph(item_text, S['small']),
+            Paragraph(rating_labels[val], S['small']),
+        ])
+    item_tbl = Table(item_rows, colWidths=[1*cm, 12.5*cm, 4*cm])
+    item_tbl.setStyle(TableStyle(item_ts_cmds))
+    story.append(item_tbl)
+
+    # ── Confidentiality footer ──
+    story.append(Spacer(1, 12))
+    story.append(HRFlowable(width=W, thickness=0.5, color=PDF_BORDER))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        "This report is strictly confidential. Scores are based on parent/caregiver rating and should be "
+        "interpreted in conjunction with clinical judgment and other assessment data. "
+        "CPRS-R:L T-scores ≥65 are considered clinically significant.",
+        S['small']))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
+
+# ══════════════════════════════════════════════════════════════
+#  WORD DOC BUILDER  (Arabic only)
 # ══════════════════════════════════════════════════════════════
 def build_word_report(report_text, scores, bar_bytes, pie_bytes,
-                      child_name, age, gender, rater, lang):
+                      child_name, age, gender, rater, lang, responses_dict=None):
     is_rtl = (lang == "ar")
     doc = Document()
     for sec_ in doc.sections:
@@ -719,6 +1016,67 @@ def build_word_report(report_text, scores, bar_bytes, pie_bytes,
         add_para(ls,size=10.5,space_before=0,space_after=3)
 
     doc.add_paragraph().paragraph_format.space_after=Pt(10)
+
+    # ── Item responses table ──
+    if responses_dict:
+        doc.add_page_break()
+        sec_title_items = "ITEM RESPONSES — FULL RATING TABLE" if lang=="en" else "جدول استجابات البنود الكاملة"
+        add_section_title(sec_title_items)
+        note_text = ("Rating key: 0 = Not at all · 1 = Just a little · 2 = Pretty much · 3 = Very much"
+                     if lang=="en" else
+                     "مفتاح التقييم: 0 = أبداً · 1 = أحياناً · 2 = إلى حد ما · 3 = كثيراً جداً")
+        add_para(note_text, size=8.5, color=WARM_RGB, space_after=6)
+        rating_labels_en = {0:"0 — Not at all",1:"1 — Just a little",2:"2 — Pretty much",3:"3 — Very much"}
+        rating_labels_ar = {0:"0 — أبداً",1:"1 — أحياناً",2:"2 — إلى حد ما",3:"3 — كثيراً جداً"}
+        rating_labels = rating_labels_en if lang=="en" else rating_labels_ar
+        rating_fill   = {0:"D4EDDA",1:"FFF3CD",2:"FFE0B2",3:"FFCDD2"}
+        ITEMS_TABEL   = ITEMS_EN if lang=="en" else ITEMS_AR
+        item_tbl = doc.add_table(rows=0, cols=3)
+        item_tbl.style = 'Table Grid'
+        try:
+            tPr2 = item_tbl._tbl.tblPr
+            tW2  = OxmlElement('w:tblW'); tW2.set(qn('w:w'),'9026'); tW2.set(qn('w:type'),'dxa')
+            tPr2.append(tW2)
+        except: pass
+        # header row
+        hrow = item_tbl.add_row()
+        for ci, htxt in enumerate(["#" if lang=="en" else "#",
+                                    "Item" if lang=="en" else "البند",
+                                    "Rating" if lang=="en" else "التقييم"]):
+            cell = hrow.cells[ci]; cell.text=""
+            p_ = cell.paragraphs[0]
+            r_ = p_.add_run(htxt); r_.font.bold=True; r_.font.size=Pt(9)
+            r_.font.color.rgb=RGBColor(0xFF,0xFF,0xFF); r_.font.name="Times New Roman"
+            tc_ = cell._tc; tcP_ = tc_.get_or_add_tcPr()
+            shd_ = OxmlElement('w:shd'); shd_.set(qn('w:val'),'clear')
+            shd_.set(qn('w:color'),'auto'); shd_.set(qn('w:fill'),'2D2926')
+            tcP_.append(shd_)
+        for i, item_text in enumerate(ITEMS_TABEL):
+            item_num = i + 1
+            val      = responses_dict.get(item_num, 0)
+            irow     = item_tbl.add_row()
+            fill_bg  = "F7F3EE" if i%2==0 else "FFFFFF"
+            for ci, cell_txt in enumerate([str(item_num), item_text, rating_labels[val]]):
+                cell = irow.cells[ci]; cell.text=""
+                p_   = cell.paragraphs[0]
+                if is_rtl and ci != 0:
+                    pPr_ = p_._p.get_or_add_pPr()
+                    pPr_.append(OxmlElement("w:bidi"))
+                    jc_ = OxmlElement("w:jc"); jc_.set(qn("w:val"),"right"); pPr_.append(jc_)
+                r_   = p_.add_run(cell_txt); r_.font.size=Pt(8.5); r_.font.name="Times New Roman"
+                tc_  = cell._tc; tcP_ = tc_.get_or_add_tcPr()
+                shd_ = OxmlElement('w:shd'); shd_.set(qn('w:val'),'clear'); shd_.set(qn('w:color'),'auto')
+                if ci == 2:
+                    shd_.set(qn('w:fill'), rating_fill[val])
+                else:
+                    shd_.set(qn('w:fill'), fill_bg)
+                tcP_.append(shd_)
+                mg_ = OxmlElement('w:tcMar')
+                for side in ['top','bottom','left','right']:
+                    m_ = OxmlElement(f'w:{side}'); m_.set(qn('w:w'),'50'); m_.set(qn('w:type'),'dxa'); mg_.append(m_)
+                tcP_.append(mg_)
+        doc.add_paragraph().paragraph_format.space_after=Pt(10)
+
     note=("This report is strictly confidential. Scores are based on parent/caregiver rating "
           "and should be interpreted in conjunction with clinical judgment and other assessment data. "
           "CPRS-R:L T-scores ≥65 are considered clinically significant.") if lang=="en" \
@@ -734,8 +1092,8 @@ def build_word_report(report_text, scores, bar_bytes, pie_bytes,
 #  Arabic mode → EN PDF (word) + AR Word
 #  English mode → EN Word only
 # ══════════════════════════════════════════════════════════════
-def send_email_ar(child_name, buf_en, buf_ar, fn_en, fn_ar, scores):
-    """Arabic mode: attach English Word + Arabic Word"""
+def send_email_ar(child_name, buf_pdf_en, buf_word_ar, fn_pdf_en, fn_word_ar, scores):
+    """Arabic mode: attach English PDF + Arabic Word"""
     date_str=date.today().strftime('%B %d, %Y')
     elevated=[(k,scores[k]["t"]) for k in "ABCDEFGHIJKLMN" if scores[k]["t"]>=65]
     elev_html="".join(
@@ -761,24 +1119,30 @@ def send_email_ar(child_name, buf_en, buf_ar, fn_en, fn_ar, scores):
     <p style="font-size:12px;color:#8B7355;font-weight:bold;margin-bottom:6px;">Elevated Subscales (T≥65)</p>
     <table style="width:100%;font-size:12px;border-collapse:collapse;">{elev_html}</table>
     <hr style="border:none;border-top:1px solid #DDD5C8;margin:16px 0;">
-    <p style="font-size:12px;line-height:1.6;">Two Word documents attached:<br>
-    📄 <strong>English Report</strong> — Full clinical report<br>
-    📝 <strong>Arabic Report</strong> — التقرير السريري بالعربية</p>
+    <p style="font-size:12px;line-height:1.6;">Two documents attached:<br>
+    📄 <strong>English Report (PDF)</strong> — Full clinical report<br>
+    📝 <strong>Arabic Report (Word)</strong> — التقرير السريري بالعربية</p>
     <p style="font-size:10px;color:#8B7355;font-style:italic;">Confidential — for the treating clinician only.</p>
   </div></body></html>"""
     msg.attach(MIMEText(body,'html'))
-    for buf_,fname_ in [(buf_en,fn_en),(buf_ar,fn_ar)]:
-        buf_.seek(0)
-        part=MIMEBase('application','vnd.openxmlformats-officedocument.wordprocessingml.document')
-        part.set_payload(buf_.read()); encoders.encode_base64(part)
-        part.add_header('Content-Disposition','attachment',filename=fname_)
-        msg.attach(part)
+    # EN PDF
+    buf_pdf_en.seek(0)
+    part_pdf=MIMEBase('application','pdf')
+    part_pdf.set_payload(buf_pdf_en.read()); encoders.encode_base64(part_pdf)
+    part_pdf.add_header('Content-Disposition','attachment',filename=fn_pdf_en)
+    msg.attach(part_pdf)
+    # AR Word
+    buf_word_ar.seek(0)
+    part_doc=MIMEBase('application','vnd.openxmlformats-officedocument.wordprocessingml.document')
+    part_doc.set_payload(buf_word_ar.read()); encoders.encode_base64(part_doc)
+    part_doc.add_header('Content-Disposition','attachment',filename=fn_word_ar)
+    msg.attach(part_doc)
     with smtplib.SMTP_SSL('smtp.gmail.com',465) as srv:
         srv.login(GMAIL_USER,GMAIL_PASS)
         srv.sendmail(GMAIL_USER,RECIPIENT_EMAIL,msg.as_string())
 
-def send_email_en(child_name, buf_en, fn_en, scores):
-    """English mode: attach English Word only"""
+def send_email_en(child_name, buf_pdf_en, fn_pdf_en, scores):
+    """English mode: attach English PDF only"""
     date_str=date.today().strftime('%B %d, %Y')
     elevated=[(k,scores[k]["t"]) for k in "ABCDEFGHIJKLMN" if scores[k]["t"]>=65]
     elev_html="".join(
@@ -804,14 +1168,14 @@ def send_email_en(child_name, buf_en, fn_en, scores):
     <p style="font-size:12px;color:#8B7355;font-weight:bold;margin-bottom:6px;">Elevated Subscales (T≥65)</p>
     <table style="width:100%;font-size:12px;border-collapse:collapse;">{elev_html}</table>
     <hr style="border:none;border-top:1px solid #DDD5C8;margin:16px 0;">
-    <p style="font-size:12px;line-height:1.6;">English report attached as Word document.</p>
+    <p style="font-size:12px;line-height:1.6;">English clinical report attached as PDF.</p>
     <p style="font-size:10px;color:#8B7355;font-style:italic;">Confidential — for the treating clinician only.</p>
   </div></body></html>"""
     msg.attach(MIMEText(body,'html'))
-    buf_en.seek(0)
-    part=MIMEBase('application','vnd.openxmlformats-officedocument.wordprocessingml.document')
-    part.set_payload(buf_en.read()); encoders.encode_base64(part)
-    part.add_header('Content-Disposition','attachment',filename=fn_en)
+    buf_pdf_en.seek(0)
+    part=MIMEBase('application','pdf')
+    part.set_payload(buf_pdf_en.read()); encoders.encode_base64(part)
+    part.add_header('Content-Disposition','attachment',filename=fn_pdf_en)
     msg.attach(part)
     with smtplib.SMTP_SSL('smtp.gmail.com',465) as srv:
         srv.login(GMAIL_USER,GMAIL_PASS)
@@ -988,11 +1352,46 @@ if lang=="en":
         <h1>Conners CPRS-R:L</h1>
         <p>Conners' Parent Rating Scale — Revised: Long Version</p>
     </div>""", unsafe_allow_html=True)
+    st.markdown("""<div style="background:white;border:1px solid #DDD5C8;border-radius:6px;
+        padding:1.4rem 1.8rem;margin:1.2rem 0 1.6rem;line-height:1.85;font-size:.9rem;color:#1C1917;">
+        <div style="color:#8B7355;font-size:.72rem;font-weight:500;letter-spacing:.09em;
+             text-transform:uppercase;margin-bottom:.7rem;">About this Assessment</div>
+        <p style="margin:0 0 .8rem;">The <strong>Conners' Parent Rating Scale — Revised: Long Version (CPRS-R:L)</strong>
+        is a standardised, evidence-based questionnaire widely used to evaluate behavioural, emotional,
+        and attentional concerns in children aged 3–17 years — with a particular focus on symptoms
+        associated with <strong>Attention-Deficit/Hyperactivity Disorder (ADHD)</strong>.</p>
+        <p style="margin:0 0 .8rem;">You will be asked to rate <strong>80 statements</strong> describing
+        your child's behaviour <strong>over the past month</strong>. Each statement is rated on a
+        four-point scale from <em>Not at all</em> to <em>Very much</em>. There are no right or wrong answers —
+        honest and accurate ratings lead to the most useful clinical picture.</p>
+        <p style="margin:0;color:#8B7355;font-size:.84rem;">
+        ⏱ Estimated time: 10–15 minutes &nbsp;·&nbsp;
+        🔒 All responses are strictly confidential &nbsp;·&nbsp;
+        📧 A report will be sent automatically to the clinician upon submission</p>
+    </div>""", unsafe_allow_html=True)
 else:
     st.markdown("""<div class="page-header" style="direction:rtl;">
         <p>تقييم سريري سري</p>
         <h1>مقياس كونرز للوالدين</h1>
         <p>CPRS-R:L — نسخة مراجعة طويلة</p>
+    </div>""", unsafe_allow_html=True)
+    st.markdown("""<div style="background:white;border:1px solid #DDD5C8;border-radius:6px;
+        padding:1.4rem 1.8rem;margin:1.2rem 0 1.6rem;line-height:1.9;font-size:.9rem;color:#1C1917;
+        direction:rtl;text-align:right;">
+        <div style="color:#8B7355;font-size:.72rem;font-weight:500;letter-spacing:.05em;
+             margin-bottom:.7rem;">عن هذا التقييم</div>
+        <p style="margin:0 0 .8rem;"><strong>مقياس كونرز للوالدين — النسخة المراجعة الطويلة (CPRS-R:L)</strong>
+        هو استبيان موحَّد ومعتمد بحثياً يُستخدم على نطاق واسع لتقييم المخاوف السلوكية والانفعالية
+        والانتباهية لدى الأطفال من سن 3 إلى 17 سنة، مع تركيز خاص على أعراض
+        <strong>اضطراب نقص الانتباه وفرط الحركة (ADHD)</strong>.</p>
+        <p style="margin:0 0 .8rem;">ستُطلب منك تقييم <strong>80 عبارة</strong> تصف سلوك طفلك
+        <strong>خلال الشهر الماضي</strong>. تُقيَّم كل عبارة على مقياس رباعي من
+        <em>أبداً</em> إلى <em>كثيراً جداً</em>. لا توجد إجابات صحيحة أو خاطئة —
+        التقييم الصادق والدقيق يُعطي الصورة السريرية الأكثر فائدة.</p>
+        <p style="margin:0;color:#8B7355;font-size:.84rem;">
+        ⏱ الوقت المتوقع: 10–15 دقيقة &nbsp;·&nbsp;
+        🔒 جميع الإجابات سرية تماماً &nbsp;·&nbsp;
+        📧 سيُرسل تقرير تلقائياً إلى الطبيب المعالج فور الإرسال</p>
     </div>""", unsafe_allow_html=True)
 
 # Language toggle
@@ -1019,11 +1418,15 @@ if lang=="en":
     c1,c2,c3=st.columns(3)
     with c1:
         child_name=st.text_input("Child's Full Name",placeholder="First and last name",key="child_name_inp")
-        child_age =st.text_input("Age",placeholder="e.g. 8",key="child_age_inp")
+        child_age=st.selectbox("Age (years)",options=["—"]+[str(i) for i in range(3,18)],key="child_age_inp")
+        child_age = "" if child_age=="—" else child_age
     with c2:
         child_gender=st.radio("Gender",["Male","Female"],key="child_gender_inp",
                               horizontal=True,label_visibility="visible")
-        child_grade =st.text_input("School Grade",placeholder="e.g. Grade 3",key="child_grade_inp")
+        grade_opts=["—","KG","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5",
+                    "Grade 6","Grade 7","Grade 8","Grade 9","Grade 10","Grade 11","Grade 12"]
+        child_grade=st.selectbox("School Grade",options=grade_opts,key="child_grade_inp")
+        child_grade = "" if child_grade=="—" else child_grade
     with c3:
         rater=st.text_input("Rater's Name (Parent / Caregiver)",placeholder="Name",key="rater_inp")
         st.markdown("<div style='font-size:.85rem;color:#1C1917;margin-bottom:.2rem;'>Relationship to Child</div>",unsafe_allow_html=True)
@@ -1060,11 +1463,16 @@ else:
     c1,c2,c3=st.columns(3)
     with c1:
         child_name=st.text_input("اسم الطفل (بالإنجليزية)",placeholder="e.g. Ahmed Hassan",key="child_name_inp")
-        child_age =st.text_input("السن",placeholder="مثال: 8",key="child_age_inp")
+        child_age=st.selectbox("السن (بالسنوات)",options=["—"]+[str(i) for i in range(3,18)],key="child_age_inp")
+        child_age = "" if child_age=="—" else child_age
     with c2:
         child_gender=st.radio("النوع",["ذكر","أنثى"],key="child_gender_inp",
                               horizontal=True,label_visibility="visible")
-        child_grade =st.text_input("الصف الدراسي",placeholder="مثال: الصف الثالث",key="child_grade_inp")
+        grade_opts_ar=["—","KG","الصف الأول","الصف الثاني","الصف الثالث","الصف الرابع",
+                       "الصف الخامس","الصف السادس","الصف السابع","الصف الثامن",
+                       "الصف التاسع","الصف العاشر","الصف الحادي عشر","الصف الثاني عشر"]
+        child_grade=st.selectbox("الصف الدراسي",options=grade_opts_ar,key="child_grade_inp")
+        child_grade = "" if child_grade=="—" else child_grade
     with c3:
         rater=st.text_input("اسم المُقيِّم (ولي الأمر)",placeholder="الاسم",key="rater_inp")
         st.markdown("<div style='font-size:.85rem;color:#1C1917;margin-bottom:.2rem;direction:rtl;text-align:right;'>صلة القرابة بالطفل</div>",unsafe_allow_html=True)
@@ -1157,6 +1565,7 @@ if submit and answered_count==80:
     child_age_v =child_age   or "—"
     rater_v     =rater       or ("Parent" if lang=="en" else "ولي الأمر")
     gender_v    =child_gender
+    responses_v =dict(st.session_state.responses)
 
     spinner_txt=("⏳ Scoring and generating report..." if lang=="en"
                  else "⏳ جاري الحساب وإنشاء التقارير...")
@@ -1171,17 +1580,21 @@ if submit and answered_count==80:
 
         # Auto-email
         try:
-            bar_b=make_bar_chart(scores,lang); pie_b=make_pie_chart(st.session_state.responses)
-            buf_en_=build_word_report(report_en,scores,bar_b,pie_b,child_name_v,child_age_v,gender_v,rater_v,"en")
-            fn_en_=f"{child_name_v.replace(' ','_')}_Conners_EN.docx"
+            bar_b=make_bar_chart(scores,lang); pie_b=make_pie_chart(responses_v)
+            # English report → always PDF
+            buf_pdf_en_=build_pdf_report_en(report_en,scores,bar_b,pie_b,
+                                             child_name_v,child_age_v,gender_v,rater_v,responses_v)
+            fn_pdf_en_=f"{child_name_v.replace(' ','_')}_Conners_EN.pdf"
             if lang=="ar":
-                buf_ar_=build_word_report(report_ar,scores,bar_b,pie_b,child_name_v,child_age_v,gender_v,rater_v,"ar")
-                fn_ar_=f"{child_name_v.replace(' ','_')}_Conners_AR.docx"
-                send_email_ar(child_name_v,buf_en_,buf_ar_,fn_en_,fn_ar_,scores)
+                # Arabic report → Word
+                buf_word_ar_=build_word_report(report_ar,scores,bar_b,pie_b,
+                                               child_name_v,child_age_v,gender_v,rater_v,"ar",responses_v)
+                fn_word_ar_=f"{child_name_v.replace(' ','_')}_Conners_AR.docx"
+                send_email_ar(child_name_v,buf_pdf_en_,buf_word_ar_,fn_pdf_en_,fn_word_ar_,scores)
             else:
-                send_email_en(child_name_v,buf_en_,fn_en_,scores)
+                send_email_en(child_name_v,buf_pdf_en_,fn_pdf_en_,scores)
         except Exception:
-            pass  # email failure is silent — report still shown
+            pass  # email failure is silent
 
         st.session_state["scores"]      =scores
         st.session_state["report_en"]   =report_en
