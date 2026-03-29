@@ -605,11 +605,10 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
         ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ('LEFTPADDING', (0,0), (-1,-1), 6),
     ]))
-    story.append(demo_tbl)
+    story.append(KeepTogether([demo_tbl]))
     story.append(Spacer(1, 10))
 
     # ── Subscale score summary table ──
-    story.append(Paragraph("SUBSCALE SCORE SUMMARY", S['section']))
     score_header = [
         Paragraph('<b>Scale</b>', S['small']),
         Paragraph('<b>Raw</b>', S['small']),
@@ -649,8 +648,11 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
         ts_cmds.append(('TEXTCOLOR',  (4, row_i), (4, row_i), colors.black))
         ts_cmds.append(('FONTNAME',   (4, row_i), (4, row_i), 'Helvetica-Bold'))
     score_tbl.setStyle(TableStyle(ts_cmds))
-    story.append(score_tbl)
-    story.append(Spacer(1, 6))
+    story.append(KeepTogether([
+        Paragraph("SUBSCALE SCORE SUMMARY", S['section']),
+        score_tbl,
+        Spacer(1, 6),
+    ]))
 
     # ── Colour legend ──
     legend_data = [
@@ -699,19 +701,22 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
         ('ROWBACKGROUNDS', (1,1), (-1,-1), [colors.white, PDF_CREAM, colors.white, PDF_CREAM]),
     ]
     legend_tbl.setStyle(TableStyle(legend_cmds))
-    story.append(Paragraph("COLOUR LEGEND — T-SCORE CLASSIFICATION", S['section']))
-    story.append(legend_tbl)
-    story.append(Spacer(1, 8))
+    story.append(KeepTogether([
+        Paragraph("COLOUR LEGEND — T-SCORE CLASSIFICATION", S['section']),
+        legend_tbl,
+        Spacer(1, 8),
+    ]))
 
     # ── Bar chart ──
-    story.append(Paragraph("T-SCORE PROFILE CHART", S['section']))
     bar_img = RLImage(io.BytesIO(bar_bytes), width=W, height=W*0.52)
     bar_img.hAlign = 'CENTER'
-    story.append(bar_img)
-    story.append(Spacer(1, 6))
+    story.append(KeepTogether([
+        Paragraph("T-SCORE PROFILE CHART", S['section']),
+        bar_img,
+        Spacer(1, 6),
+    ]))
 
     # ── Pie + ADHD highlight side by side ──
-    story.append(Paragraph("RESPONSE DISTRIBUTION & ADHD INDICATORS", S['section']))
     pie_img = RLImage(io.BytesIO(pie_bytes), width=7.5*cm, height=5.5*cm)
 
     adhd_keys = [("H","ADHD Index"),("L","DSM-IV Inattentive"),
@@ -748,8 +753,11 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
     side_tbl = Table([[pie_img, adhd_tbl]], colWidths=[8*cm, W-8*cm])
     side_tbl.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),
                                    ('LEFTPADDING',(1,0),(1,0),12)]))
-    story.append(side_tbl)
-    story.append(Spacer(1, 6))
+    story.append(KeepTogether([
+        Paragraph("RESPONSE DISTRIBUTION & ADHD INDICATORS", S['section']),
+        side_tbl,
+        Spacer(1, 6),
+    ]))
 
     # ── Clinical narrative ──
     story.append(HRFlowable(width=W, thickness=0.5, color=PDF_BORDER))
@@ -784,7 +792,7 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
                         ('BOTTOMPADDING',(0,0),(-1,-1),3),
                         ('LEFTPADDING',(0,0),(-1,-1),5),
                     ]))
-                    story.append(mini_tbl); continue
+                    story.append(KeepTogether([mini_tbl])); continue
         story.append(Paragraph(ls, S['body']))
 
     story.append(Spacer(1, 10))
@@ -834,7 +842,7 @@ def build_pdf_report_en(report_text, scores, bar_bytes, pie_bytes,
             Paragraph(item_text, S['small']),
             Paragraph(rating_labels[val], S['small']),
         ])
-    item_tbl = Table(item_rows, colWidths=[1*cm, 12.5*cm, 4*cm])
+    item_tbl = Table(item_rows, colWidths=[1*cm, 12.5*cm, 4*cm], repeatRows=1)
     item_tbl.setStyle(TableStyle(item_ts_cmds))
     story.append(item_tbl)
 
